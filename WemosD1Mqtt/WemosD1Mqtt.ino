@@ -18,18 +18,31 @@
 // Relay
 #define USE_RELAY2 1
 
-const char* FIRMWARE = "RABCBot 2018-12-05 830AM";
+const char* FIRMWARE = "RABCBot 2018-12-08 12:30PM";
 const int TIME_DELAY = 2500;
-const char* ssid = "<Your ssid>";
-const char* password = "<Your password>";
+const char* ssid = "your-ssid";
+const char* password = "your-password";
 
-const char* mqttBroker = "<Your mqtt broker>";
+const char* PAYLOAD_ON = "ON";
+const char* PAYLOAD_OFF = "OFF";
+
+const char* mqttBroker = "192.168.101.113";
 const int mqttPort = 1883;
 String mqttUser;
 
 const String topicPrefix = "home/";
 String topicFirmware = "/firmware";
 String topicFirmwareGet = "/firmware/get"; // Return firmware
+
+String topicPinDht = "/pin/dht";
+String topicPinMotion = "/pin/motion";
+String topicPinRelay = "/pin/relay";
+String topicPinRelay2 = "/pin/relay2";
+String topicPinTrigger = "/pin/trigger";
+String topicPinEcho = "/pin/echo";
+String topicPinAnalog = "/pin/analog";
+String topicPinGet = "/pin/get"; 
+
 String topicTemp = "/temperature";
 String topicHumid = "/humidity";
 String topicDist = "/distance";
@@ -58,13 +71,13 @@ D8  IO, 10k Pull-down, SS GPIO15
 G Ground  GND
 */
 
-const int pinDht = 2; // D4 BUILTIN LED
-const int pinMotion = 16;  // D0
-const int pinRelay = 0; // D3 Pull up
-const int pinRelay2 = 14; // D5 SCK
-const int pinTrig = 12;  // D6 MISO
-const int pinEcho = 13;  // D7 MOSI
-const int pinAnalog = A0;
+int pinDht = 2; // D4 BUILTIN LED
+int pinMotion = 16;  // D0
+int pinRelay = 0; // D3 Pull up
+int pinRelay2 = 14; // D5 SCK
+int pinTrig = 12;  // D6 MISO
+int pinEcho = 13;  // D7 MOSI
+int pinAnalog = A0;
 
 #if defined(USE_DHT)
 DHT dht(pinDht, DHT11);
@@ -113,6 +126,16 @@ void setup_mqtt()
   mqttUser.toUpperCase();
   topicFirmware = topicPrefix + mqttUser + topicFirmware;
   topicFirmwareGet = topicPrefix + mqttUser + topicFirmwareGet;
+  
+  topicPinDht = topicPrefix + mqttUser + topicPinDht;
+  topicPinMotion = topicPrefix + mqttUser + topicPinMotion;
+  topicPinRelay = topicPrefix + mqttUser + topicPinRelay;
+  topicPinRelay2 = topicPrefix + mqttUser + topicPinRelay2;
+  topicPinTrigger = topicPrefix + mqttUser + topicPinTrigger;
+  topicPinEcho = topicPrefix + mqttUser + topicPinEcho;
+  topicPinAnalog = topicPrefix + mqttUser + topicPinAnalog;
+  topicPinGet = topicPrefix + mqttUser + topicPinGet;
+  
   topicTemp = topicPrefix + mqttUser + topicTemp;
   topicHumid = topicPrefix + mqttUser + topicHumid;
   topicDist = topicPrefix + mqttUser + topicDist;
@@ -140,9 +163,10 @@ void callback(char* topic, byte* payload, unsigned int length)
   #if defined(USE_RELAY)
   if (String(topic) == topicRelaySet)
   {
-    if ((char)payload[0] == '1') 
+    if (strncmp((char *)payload, PAYLOAD_ON, length) == 0) 
       digitalWrite(pinRelay, HIGH);
-    else
+    else 
+    if (strncmp((char *)payload, PAYLOAD_OFF, length) == 0) 
       digitalWrite(pinRelay, LOW);
     PublishRelay(true);
   }
@@ -151,9 +175,10 @@ void callback(char* topic, byte* payload, unsigned int length)
   #if defined(USE_RELAY2)
   if (String(topic) == topicRelay2Set)
   {
-    if ((char)payload[0] == '1') 
+    if (strncmp((char *)payload, PAYLOAD_ON, length) == 0) 
       digitalWrite(pinRelay2, HIGH);
-    else
+    else 
+    if (strncmp((char *)payload, PAYLOAD_OFF, length) == 0) 
       digitalWrite(pinRelay2, LOW);
     PublishRelay2(true);
   }
@@ -166,6 +191,10 @@ void callback(char* topic, byte* payload, unsigned int length)
   if (String(topic) == topicFirmwareGet)
   {
     PublishFirmware();    
+  }
+  if (String(topic) == topicPinGet)
+  {
+    PublishPins();    
   }
 }
 
@@ -188,6 +217,7 @@ void reconnect()
       // re-subscribe
       clientMqtt.subscribe(topicForce.c_str());
       clientMqtt.subscribe(topicFirmwareGet.c_str());
+      clientMqtt.subscribe(topicPinGet.c_str());
       #if defined(USE_RELAY)
       clientMqtt.subscribe(topicRelaySet.c_str());
       clientMqtt.subscribe(topicRelay2Set.c_str());
@@ -344,7 +374,6 @@ float prevMotion;
 void PublishMotion(boolean forced)
 {
   float val;
-  String aux;
 
   #if defined(USE_MOTION)
     val = digitalRead(pinMotion);
@@ -352,10 +381,12 @@ void PublishMotion(boolean forced)
       Serial.print("Motion measured ");
       Serial.println(val);
     #endif
-    aux = String(val, 0);
     if(prevMotion != val || forced)
     {
-      clientMqtt.publish(topicMotion.c_str(), aux.c_str());
+      if(val == 1)
+        clientMqtt.publish(topicMotion.c_str(), "ON");
+      else
+        clientMqtt.publish(topicMotion.c_str(), "OFF");
       prevMotion = val;
       #if defined(USE_SERIAL)
       Serial.print(topicMotion);
@@ -410,7 +441,6 @@ float prevRelay;
 void PublishRelay(boolean forced)
 {
   float val;
-  String aux;
 
   #if defined(USE_RELAY)
     val = digitalRead(pinRelay);
@@ -422,8 +452,10 @@ void PublishRelay(boolean forced)
     if (!isnan(val) && (prevRelay != val || forced))
     {
       prevRelay = val;
-      aux = String(val, 0);
-      clientMqtt.publish(topicRelay.c_str(), aux.c_str());
+      if(val == 1)
+        clientMqtt.publish(topicRelay.c_str(), "ON");
+      else
+        clientMqtt.publish(topicRelay.c_str(), "OFF");
       #if defined(USE_SERIAL)
         Serial.print(topicRelay);
         Serial.println(" MQTT Published");
@@ -448,8 +480,10 @@ void PublishRelay2(boolean forced)
     if (!isnan(val) && (prevRelay2 != val || forced))
     {
       prevRelay2 = val;
-      aux = String(val, 0);
-      clientMqtt.publish(topicRelay2.c_str(), aux.c_str());
+      if(val == 1)
+        clientMqtt.publish(topicRelay2.c_str(), "ON");
+      else
+        clientMqtt.publish(topicRelay2.c_str(), "OFF");
       #if defined(USE_SERIAL)
         Serial.print(topicRelay2);
         Serial.println(" MQTT Published");
@@ -465,6 +499,86 @@ void PublishFirmware()
     Serial.print(topicFirmware);
     Serial.print(FIRMWARE);
     Serial.println(" MQTT Published");
+  #endif
+}
+
+void PublishPins()
+{
+  float val;
+  String aux;
+  
+  #if defined(USE_DHT)
+  val = pinDht;
+  aux = String(val, 0);
+  #if defined(USE_SERIAL)
+  Serial.print(topicPinDht);
+  Serial.print(aux);
+  Serial.println(" MQTT Published");
+  #endif
+  clientMqtt.publish(topicPinDht.c_str(), aux.c_str());
+  #endif
+
+  #if defined(USE_MOTION)
+  val = pinMotion;
+  aux = String(val, 0);
+  #if defined(USE_SERIAL)
+  Serial.print(topicPinMotion);
+  Serial.print(aux);
+  Serial.println(" MQTT Published");
+  #endif
+  clientMqtt.publish(topicPinMotion.c_str(), aux.c_str());
+  #endif
+
+  #if defined(USE_RELAY)
+  val = pinRelay;
+  aux = String(val, 0);
+  #if defined(USE_SERIAL)
+  Serial.print(topicPinRelay);
+  Serial.print(aux);
+  Serial.println(" MQTT Published");
+  #endif
+  clientMqtt.publish(topicPinRelay.c_str(), aux.c_str());
+  #endif
+
+  #if defined(USE_RELAY2)
+  val = pinRelay2;
+  aux = String(val, 0);
+  #if defined(USE_SERIAL)
+  Serial.print(topicPinRelay2);
+  Serial.print(aux);
+  Serial.println(" MQTT Published");
+  #endif
+  clientMqtt.publish(topicPinRelay2.c_str(), aux.c_str());
+  #endif
+  
+  #if defined(USE_DISTANCE)
+  val = pinTrig;
+  aux = String(val, 0);
+  #if defined(USE_SERIAL)
+  Serial.print(topicPinTrigger);
+  Serial.print(aux);
+  Serial.println(" MQTT Published");
+  #endif
+  clientMqtt.publish(topicPinTrigger.c_str(), aux.c_str());
+  val = pinEcho;
+  aux = String(val, 0);
+  #if defined(USE_SERIAL)
+  Serial.print(topicPinEcho);
+  Serial.print(aux);
+  Serial.println(" MQTT Published");
+  #endif
+  clientMqtt.publish(topicPinEcho.c_str(), aux.c_str());
+  #endif
+
+  #if defined(USE_ANALOG)
+  val = pinAnalog;
+  aux = String(val, 0);
+  #if defined(USE_SERIAL)
+  Serial.print(topicPinAnalog);
+  Serial.print(aux);
+  Serial.println(" MQTT Published");
+  #endif
+  clientMqtt.publish(topicPinAnalog.c_str(), aux.c_str());
   #endif
 }
 
