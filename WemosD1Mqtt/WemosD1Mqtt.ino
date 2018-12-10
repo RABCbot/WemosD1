@@ -17,18 +17,22 @@
 #define USE_RELAY 1
 // Relay
 #define USE_RELAY2 1
+// Built in led
+#define USE_LED 1
 
-const char* FIRMWARE = "RABCBot 2018-12-08 12:30PM";
+const char* FIRMWARE = "RABCBot 2018-12-10 7:20AM";
 const int TIME_DELAY = 2500;
+
 const char* ssid = "your-ssid";
 const char* password = "your-password";
 
-const char* PAYLOAD_ON = "ON";
-const char* PAYLOAD_OFF = "OFF";
-
-const char* mqttBroker = "192.168.101.113";
+const char* mqttBroker = "your-broker";
 const int mqttPort = 1883;
 String mqttUser;
+
+const char* PAYLOAD_ON = "ON";
+const char* PAYLOAD_OFF = "OFF";
+const char* PAYLOAD_BLINK = "BLINK";
 
 const String topicPrefix = "home/";
 String topicFirmware = "/firmware";
@@ -49,6 +53,7 @@ String topicDist = "/distance";
 String topicDistMedian = "/distanceMedian";
 String topicMotion = "/motion";
 String topicAnalog = "/analog";
+String topicLedSet = "/led/set";
 String topicRelay = "/relay"; // Returns status of relay
 String topicRelaySet = "/relay/set"; // 1 is on, 0 is off
 String topicRelay2 = "/relay2"; // Returns status of relay
@@ -71,13 +76,18 @@ D8  IO, 10k Pull-down, SS GPIO15
 G Ground  GND
 */
 
-int pinDht = 2; // D4 BUILTIN LED
 int pinMotion = 16;  // D0
-int pinRelay = 0; // D3 Pull up
-int pinRelay2 = 14; // D5 SCK
-int pinTrig = 12;  // D6 MISO
-int pinEcho = 13;  // D7 MOSI
+int pinRelay = 5; // D1
+int pinRelay2 = 4; // D2
+int pinDht = 0; // D3
+int pinLed = 2;
+int pinTrig = 12;  // D6
+int pinEcho = 13;  // D7
 int pinAnalog = A0;
+
+#if defined(USE_LED)
+bool ledBlink = false;
+#endif
 
 #if defined(USE_DHT)
 DHT dht(pinDht, DHT11);
@@ -146,6 +156,9 @@ void setup_mqtt()
   topicRelay = topicPrefix + mqttUser + topicRelay;
   topicRelay2Set = topicPrefix + mqttUser + topicRelay2Set;
   topicRelay2 = topicPrefix + mqttUser + topicRelay2;
+
+  topicLedSet = topicPrefix + mqttUser + topicLedSet;
+
   reconnect();
 }
 
@@ -181,6 +194,26 @@ void callback(char* topic, byte* payload, unsigned int length)
     if (strncmp((char *)payload, PAYLOAD_OFF, length) == 0) 
       digitalWrite(pinRelay2, LOW);
     PublishRelay2(true);
+  }
+  #endif
+
+  #if defined(USE_LED)
+  if (String(topic) == topicLedSet)
+  {
+    if (strncmp((char *)payload, PAYLOAD_ON, length) == 0) 
+    {
+      ledBlink = false; 
+      digitalWrite(pinLed, LOW);
+    }
+    else 
+    if (strncmp((char *)payload, PAYLOAD_OFF, length) == 0) 
+    {
+      ledBlink = false; 
+      digitalWrite(pinLed, HIGH);
+    }
+    else
+    if (strncmp((char *)payload, PAYLOAD_BLINK, length) == 0) 
+      ledBlink = true;
   }
   #endif
 
@@ -222,6 +255,9 @@ void reconnect()
       clientMqtt.subscribe(topicRelaySet.c_str());
       clientMqtt.subscribe(topicRelay2Set.c_str());
       #endif
+      #if defined(USE_LED)
+      clientMqtt.subscribe(topicLedSet.c_str());
+      #endif
     }
     else
     {
@@ -250,6 +286,10 @@ void setup_pins()
   #endif
   #if defined(USE_MOTION)
   pinMode(pinMotion, INPUT);
+  #endif  
+  #if defined(USE_LED)
+  pinMode(pinLed, OUTPUT);
+  digitalWrite(pinLed, HIGH);
   #endif  
 }
 
@@ -287,8 +327,31 @@ void loop()
   {
     prevTime = now;
     PublishAll(false);
+    if(ledBlink) Blink();
   }
 }
+
+void Blink()
+{
+#if defined(USE_LED)
+  float val;
+
+  val = digitalRead(pinLed);
+  #if defined(USE_SERIAL)
+  Serial.print("Led status ");
+  Serial.println(val);
+  #endif
+
+  if (!isnan(val))
+  {
+    if(val == 1)
+      digitalWrite(pinLed, LOW);
+    else
+      digitalWrite(pinLed, HIGH);
+  }
+#endif  
+}
+
 
 float prevDistMedian;
 void PublishDistance(boolean forced)
